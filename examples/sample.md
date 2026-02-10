@@ -90,6 +90,31 @@ You can combine `inline code` with **bold text** and *italic text* in the same p
 
 When dealing with technical documentation, terms like **API**, **JSON**, **HTTP**, and **URL** might need special handling depending on the target language and context.
 
+This sample also intentionally includes several project-specific terms that must NOT be translated: StarRocks, Hive, Leader, Follower, Raft, Docker, Kubernetes, MinIO.
+
+Additional example sentences using common English terms from the Chinese dictionary:
+
+- Data loading is performed during the ingestion phase of the pipeline.
+- Data unloading exports results to external systems for downstream processing.
+- A native table stores data using the system's internal format.
+- Cloud-native table deployments separate storage and compute for scalability.
+- An External Table allows querying data that lives outside the database.
+- A Hive external table can be used to access legacy Hive datasets.
+- Storage layering helps optimize hot and cold data placement.
+- The separation of storage and compute enables flexible scaling.
+- In shared-data mode, multiple compute clusters access the same storage.
+- Zero-migration strategies minimize downtime during upgrades.
+- The native vectorized engine accelerates analytical queries.
+- Query federation allows joining tables across different systems.
+- Columnar storage improves compression and analytical performance.
+- Row storage is useful for transactional workloads.
+- A materialized view can precompute expensive aggregations.
+- Pre-aggregation reduces work at query time by summarizing data ahead of time.
+- An aggregate query computes summaries across groups of rows.
+- A star schema is a common dimensional modeling pattern for analytics.
+- The snowflake schema normalizes dimension tables to reduce redundancy.
+- A point query retrieves a single row or a small set of rows by key.
+
 ### Code with Explanations
 
 The following command installs the package:

@@ -29,7 +29,8 @@ program
 .command('translate')
 .description('Translate markdown files to specified language')
 .requiredOption('-i, --input <pattern>', 'Input file path or glob pattern (e.g., "*.md", "docs/**/*.md")')
-.requiredOption('-l, --language <lang>', 'Target language (e.g., Spanish, French, German)')
+    .requiredOption('-l, --language <lang>', 'Target language (e.g., Spanish, French, German)')
+    .option('-s, --source <lang>', 'Source language (default: English)')
 .option('-o, --output <file>', 'Output file path (for single file translation)')
 .option('-d, --output-dir <dir>', 'Output directory (for batch translation or single file)')
 .option('-k, --key <apikey>', 'Google Gemini API key (or set GEMINI_API_KEY env var)')
@@ -73,6 +74,7 @@ program
             console.log(chalk.blue('📋 Batch Translation Details:'));
             console.log(chalk.gray(`   Pattern:  ${inputPattern}`));
             console.log(chalk.gray(`   Output:   ${outputDir}`));
+            console.log(chalk.gray(`   Source:   ${options.source || 'English'}`));
             console.log(chalk.gray(`   Language: ${options.language}`));
             console.log(chalk.gray(`   Structure: ${options.flat ? 'Flat' : 'Preserved'}`));
             console.log('');
@@ -97,7 +99,8 @@ program
                     {
                         progressCallback,
                         preserveStructure: !options.flat,
-                        suffix: options.suffix
+                        suffix: options.suffix,
+                        source: options.source || 'English'
                     }
                 );
 
@@ -167,6 +170,7 @@ program
             console.log(chalk.blue('📋 Translation Details:'));
             console.log(chalk.gray(`   Input:    ${inputPath}`));
             console.log(chalk.gray(`   Output:   ${outputPath}`));
+            console.log(chalk.gray(`   Source:   ${options.source || 'English'}`));
             console.log(chalk.gray(`   Language: ${options.language}`));
             console.log('');
 
@@ -185,6 +189,7 @@ program
                     inputPath,
                     outputPath,
                     options.language,
+                    options.source || 'English',
                     progressCallback
                 );
 
@@ -194,6 +199,7 @@ program
                 console.log(chalk.blue('\n📊 Summary:'));
                 console.log(chalk.gray(`   Original length:  ${result.originalLength.toLocaleString()} characters`));
                 console.log(chalk.gray(`   Translated length: ${result.translatedLength.toLocaleString()} characters`));
+                console.log(chalk.gray(`   Source:           ${result.sourceLanguage || 'English'}`));
                 console.log(chalk.gray(`   Language:         ${result.targetLanguage}`));
                 console.log(chalk.gray(`   Output file:      ${result.outputPath}`));
 
