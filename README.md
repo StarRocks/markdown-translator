@@ -2,6 +2,10 @@
 
 A powerful command-line tool that uses Google Gemini AI to translate markdown and MDX files from English to any specified language while preserving formatting and structure.
 
+## Usage at StarRocks
+
+This code and most of the README are from the team at [PlayCanvas](https://github.com/playcanvas/markdown-translator)
+
 ## Features
 
 - 🌍 **Multi-language support** - Translate to 40+ languages
@@ -93,7 +97,7 @@ md-translate translate -i "docs/**/*.md" -l French -d ./translations/
 md-translate translate -i "content/**/*.md" -l German -d ./output/ --flat
 
 # Batch translate with custom suffix
-md-translate translate -i "*.md" -l Japanese -d ./translated/ --suffix "ja"
+md-translate translate -i "*.md" -l ja -d ./translated/ --suffix "ja"
 ```
 
 ### Available Commands
@@ -140,6 +144,10 @@ The tool supports 40+ languages including:
 - **Asian**: Chinese, Japanese, Korean, Hindi, Thai, Vietnamese, Indonesian, Malay
 - **Middle Eastern**: Arabic, Hebrew, Turkish
 
+> Tip
+>
+> Use the two letter short code for the language if you like. For example, `zh` instead of "Simplified Chinese".
+
 ## Examples
 
 ### Single File Translation
@@ -147,7 +155,7 @@ The tool supports 40+ languages including:
 #### Example 1: Basic Translation
 
 ```bash
-md-translate translate -i README.md -l Spanish
+md-translate translate -i README.md -l es
 ```
 
 **Output**: Creates `README_spanish.md` with Spanish translation
@@ -155,7 +163,7 @@ md-translate translate -i README.md -l Spanish
 #### Example 2: Custom Output Path
 
 ```bash
-md-translate translate -i docs/api.md -l French -o docs/fr/api.md
+md-translate translate -i docs/api.md -l fr -o docs/fr/api.md
 ```
 
 **Output**: Creates `docs/fr/api.md` with French translation
@@ -171,7 +179,7 @@ md-translate translate -i guide.md -l German --key AIzaSyC...
 The tool automatically handles large files by splitting them into chunks:
 
 ```bash
-md-translate translate -i large-document.md -l Japanese
+md-translate translate -i large-document.md -l ja
 ```
 
 ### Batch Translation
@@ -237,7 +245,7 @@ output/
 #### Example 8: Custom Suffix
 
 ```bash
-md-translate translate -i "*.md" -l Japanese -d ./translated/ --suffix "ja"
+md-translate translate -i "*.md" -l ja -d ./translated/ --suffix "ja"
 ```
 
 **Output**: Uses "ja" instead of "japanese" as the file suffix
