@@ -24,6 +24,9 @@ lib-cov
 coverage
 *.lcov
 
+# test output
+examples/StarRocksTest_simplified_chinese.md
+
 # nyc test coverage
 .nyc_output
 

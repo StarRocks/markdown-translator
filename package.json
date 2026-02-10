@@ -9,14 +9,15 @@
   },
   "scripts": {
     "start": "node bin/cli.js",
-    "demo": "node bin/cli.js translate -i examples/sample.md -l Spanish",
+    "demo": "node bin/cli.js translate -i examples/StarRocksTest.md -l \"Simplified Chinese\"",
     "setup": "node bin/cli.js setup",
     "languages": "node bin/cli.js languages",
     "lint": "eslint bin/**/*.js src/**/*.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "rm -f examples/StarRocksTest_simplified_chinese.md && node bin/cli.js translate -i examples/StarRocksTest.md -l \"Simplified Chinese\""
   },
   "keywords": [
     "markdown",
+    "docusaurus",
     "translation",
     "gemini",
     "ai",
