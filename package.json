@@ -5,7 +5,7 @@
   "type": "module",
   "main": "index.js",
   "bin": {
-    "md-translate": "./bin/cli.js"
+    "md-translate": "bin/cli.js"
   },
   "scripts": {
     "start": "node bin/cli.js",
@@ -36,6 +36,9 @@
     "globals": "^16.3.0",
     "ora": "^8.2.0",
     "path": "^0.12.7"
+  },
+  "publishConfig": {
+    "@StarRocks:registry": "https://npm.pkg.github.com"
   },
   "engines": {
     "node": ">=16.0.0"
