@@ -20,6 +20,41 @@ class MarkdownTranslator {
         this.modelName = 'gemini-2.5-flash';
         this.model = this.genAI.getGenerativeModel({ model: this.modelName });
         console.log(chalk.gray(`Using model: ${this.modelName}`));
+        // Load system prompt template and language dictionaries (if available)
+        try {
+            const configsDir = path.join(process.cwd(), 'src', 'configs');
+            const systemPromptPath = path.join(configsDir, 'system_prompt.txt');
+            if (fs.existsSync(systemPromptPath)) {
+                this.systemPromptTemplate = fs.readFileSync(systemPromptPath, 'utf8');
+            }
+
+            const dictDir = path.join(configsDir, 'language_dicts');
+            this.languageDictionaries = {};
+            if (fs.existsSync(dictDir)) {
+                const files = fs.readdirSync(dictDir);
+                for (const f of files) {
+                    const full = path.join(dictDir, f);
+                    if (fs.statSync(full).isFile() && (f.endsWith('.yml') || f.endsWith('.yaml'))) {
+                        const key = f.replace(/\.ya?ml$/i, '').toLowerCase();
+                        this.languageDictionaries[key] = fs.readFileSync(full, 'utf8');
+                    }
+                }
+            }
+            // Load never-translate list if present
+            const neverPath = path.join(configsDir, 'never_translate.yaml');
+            if (fs.existsSync(neverPath)) {
+                this.neverTranslate = fs.readFileSync(neverPath, 'utf8');
+            } else {
+                const neverPathYml = path.join(configsDir, 'never_translate.yml');
+                if (fs.existsSync(neverPathYml)) {
+                    this.neverTranslate = fs.readFileSync(neverPathYml, 'utf8');
+                }
+            }
+        } catch (e) {
+            // Non-fatal; continue without dictionaries
+            this.systemPromptTemplate = this.systemPromptTemplate || null;
+            this.languageDictionaries = this.languageDictionaries || {};
+        }
     }
 
     /**
@@ -58,22 +93,40 @@ class MarkdownTranslator {
      * @param {string} targetLanguage - Target language
      * @returns {string} Translation prompt
      */
-    createTranslationPrompt(text, targetLanguage) {
-        return `Translate the following markdown content from English to ${targetLanguage}. 
-    
-IMPORTANT INSTRUCTIONS:
-1. Preserve ALL markdown formatting (headers, links, code blocks, tables, etc.)
-2. Do NOT translate code blocks themselves, URLs, or file paths
-3. DO translate code comments within code blocks (// comments, /* comments */, # comments, etc.)
-4. Do NOT translate markdown syntax characters
-5. Maintain the exact structure and formatting
-6. Only translate the actual text content, not the markup or code
-7. If there are any technical terms or proper nouns that shouldn't be translated, keep them in English
-8. Return ONLY the translated markdown, no explanations or additional text
+    createTranslationPrompt(text, targetLanguage, sourceLanguage = 'English') {
+        // Try to use system prompt template if available
+        const tryGetDict = (lang) => {
+            if (!lang) return '';
+            const normalized = lang.toString().toLowerCase();
+            if (this.languageDictionaries[normalized]) return this.languageDictionaries[normalized];
+            // common aliases
+            if (normalized.includes('chinese') || normalized.includes('zh')) {
+                return this.languageDictionaries['zh'] || '';
+            }
+            if (normalized.includes('japan') || normalized.includes('japanese') || normalized === 'ja') {
+                return this.languageDictionaries['ja'] || '';
+            }
+            if (normalized.includes('english') || normalized === 'en') {
+                return this.languageDictionaries['en'] || '';
+            }
+            return '';
+        };
 
-Markdown content to translate:
+        const dictionaryContent = tryGetDict(targetLanguage) || '';
+        const neverTranslate = this.neverTranslate || '';
 
-${text}`;
+        if (this.systemPromptTemplate) {
+            let prompt = this.systemPromptTemplate;
+            prompt = prompt.replace(/\$\{source_lang\}/g, sourceLanguage);
+            prompt = prompt.replace(/\$\{target_lang\}/g, targetLanguage);
+            prompt = prompt.replace(/\$\{dictionary\}/g, dictionaryContent);
+            prompt = prompt.replace(/\$\{never_translate\}/g, neverTranslate);
+            prompt += `\n\nMarkdown content to translate:\n\n${text}`;
+            return prompt;
+        }
+
+        // Fallback simple prompt if template missing
+        return `Translate the following markdown content from ${sourceLanguage} to ${targetLanguage}.\n\nDICTIONARY:\n${dictionaryContent}\n\nNEVER TRANSLATE:\n${neverTranslate}\n\nIMPORTANT INSTRUCTIONS:\n1. Preserve ALL markdown formatting (headers, links, code blocks, tables, etc.)\n2. Do NOT translate code blocks themselves, URLs, or file paths\n3. DO translate code comments within code blocks (// comments, /* comments */, # comments, etc.)\n4. Do NOT translate markdown syntax characters\n5. Maintain the exact structure and formatting\n6. Only translate the actual text content, not the markup or code\n7. If there are any technical terms or proper nouns that shouldn't be translated, keep them in English\n8. Return ONLY the translated markdown, no explanations or additional text\n\nMarkdown content to translate:\n\n${text}`;
     }
 
     /**
@@ -83,9 +136,9 @@ ${text}`;
      * @param {string} targetLanguage - Target language
      * @returns {Promise<string>} Translated text
      */
-    async translateChunk(chunk, targetLanguage) {
+    async translateChunk(chunk, targetLanguage, sourceLanguage = 'English') {
         try {
-            const prompt = this.createTranslationPrompt(chunk, targetLanguage);
+            const prompt = this.createTranslationPrompt(chunk, targetLanguage, sourceLanguage);
             const result = await this.model.generateContent(prompt);
             const response = await result.response;
             return response.text().trim();
@@ -103,11 +156,11 @@ ${text}`;
      * @param {Function} progressCallback - Optional progress callback
      * @returns {Promise<string>} Translated content
      */
-    async translateMarkdown(content, targetLanguage, progressCallback) {
+    async translateMarkdown(content, targetLanguage, sourceLanguage = 'English', progressCallback) {
         const chunks = this.splitIntoChunks(content);
         const translatedChunks = [];
 
-        console.log(chalk.blue(`Translating ${chunks.length} chunk(s) to ${targetLanguage}...`));
+        console.log(chalk.blue(`Translating ${chunks.length} chunk(s) from ${sourceLanguage} to ${targetLanguage}...`));
 
         for (let i = 0; i < chunks.length; i++) {
             if (progressCallback) {
@@ -115,7 +168,7 @@ ${text}`;
             }
 
             // eslint-disable-next-line no-await-in-loop
-            const translatedChunk = await this.translateChunk(chunks[i], targetLanguage);
+            const translatedChunk = await this.translateChunk(chunks[i], targetLanguage, sourceLanguage);
             translatedChunks.push(translatedChunk);
 
             // Add a small delay to avoid rate limiting
@@ -140,7 +193,7 @@ ${text}`;
      * @param {Function} progressCallback - Optional progress callback
      * @returns {object} Translation result
      */
-    async translateFile(inputPath, outputPath, targetLanguage, progressCallback) {
+    async translateFile(inputPath, outputPath, targetLanguage, sourceLanguage = 'English', progressCallback) {
         try {
             // Check if input file exists
             if (!await fs.pathExists(inputPath)) {
@@ -156,7 +209,7 @@ ${text}`;
             }
 
             // Translate the content
-            const translatedContent = await this.translateMarkdown(content, targetLanguage, progressCallback);
+            const translatedContent = await this.translateMarkdown(content, targetLanguage, sourceLanguage, progressCallback);
 
             // Ensure output directory exists
             const outputDir = path.dirname(outputPath);
@@ -169,6 +222,7 @@ ${text}`;
             return {
                 inputPath,
                 outputPath,
+                sourceLanguage,
                 targetLanguage,
                 originalLength: content.length,
                 translatedLength: translatedContent.length
@@ -195,7 +249,8 @@ ${text}`;
         const {
             progressCallback,
             preserveStructure = true,
-            suffix = ''
+            suffix = '',
+            source = 'English'
         } = options;
 
         try {
@@ -278,7 +333,7 @@ ${text}`;
 
                     // Translate the file
                     // eslint-disable-next-line no-await-in-loop
-                    const result = await this.translateFile(inputFile, outputPath, targetLanguage, fileProgressCallback);
+                    const result = await this.translateFile(inputFile, outputPath, targetLanguage, source, fileProgressCallback);
                     results.push(result);
 
                     processedFiles++;
