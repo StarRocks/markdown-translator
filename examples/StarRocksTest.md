@@ -69,6 +69,22 @@ Visit our [documentation](https://github.com/example/markdown-translator) for mo
 
 ![Sample Image](https://via.placeholder.com/300x200?text=Sample+Image)
 
+## Docusaurus admonitions
+
+:::tip
+If there are no access keys showing in the MinIO web UI, check the logs of the `minio_mc` service:
+
+```bash
+docker compose logs minio_mc
+```
+
+Try rerunning the `minio_mc` pod:
+
+```bash
+docker compose run minio_mc
+```
+:::
+
 ## Blockquotes
 
 > This is an important quote that should be translated while preserving the blockquote formatting.
