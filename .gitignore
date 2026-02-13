@@ -26,6 +26,8 @@ coverage
 
 # test output
 examples/StarRocksTest_simplified_chinese.md
+examples/StarRocksTest_zh.md
+examples/StarRocksTest_ja.md
 
 # nyc test coverage
 .nyc_output

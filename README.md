@@ -4,7 +4,47 @@ A powerful command-line tool that uses Google Gemini AI to translate markdown an
 
 ## Usage at StarRocks
 
-This code and most of the README are from the team at [PlayCanvas](https://github.com/playcanvas/markdown-translator)
+This code and most of the README are from the team at [PlayCanvas](https://github.com/playcanvas/markdown-translator). The only bit we add is the `-s, --source` option to allow specifying the source language as we translate from both English and Chinese.
+
+## Options
+
+```
+  -i, --input <pattern>   Input file path or glob pattern (e.g., "*.md",
+                          "docs/**/*.md")
+  -l, --language <lang>   Target language (e.g., Spanish, French, German)
+  -s, --source <lang>     Source language (default: English)
+  -o, --output <file>     Output file path (for single file translation)
+  -d, --output-dir <dir>  Output directory (for batch translation or single
+                          file)
+  -k, --key <apikey>      Google Gemini API key (or set GEMINI_API_KEY env var)
+  --flat                  Use flat structure in output directory (default:
+                          preserve structure)
+  --suffix <suffix>       Custom suffix for output files (default: language
+                          name)
+  -h, --help              display help for command
+```
+
+## Quick Start
+
+1. cd into the root of this repo
+2. Get a Gemini API Key
+3. Export your Gemini API Key like so:
+   ```sh
+   export GEMINI_API_KEY="<your key here>"
+   ```
+4. Install the prerequisites:
+   ```sh
+   npm install
+   ```
+5. Translate an example file:
+   ```sh
+   npm run demo
+   ```
+6. Check the source and destination example files (names are in the output from `npm run demo`). Look for our key phrases that are in our dictionaries and the terms that should always be left in English.
+7. List the options:
+   ```sh
+   node bin/cli.js translate -h
+   ```
 
 ## Features
 

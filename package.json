@@ -9,11 +9,11 @@
   },
   "scripts": {
     "start": "node bin/cli.js",
-    "demo": "node bin/cli.js translate -i examples/StarRocksTest.md -l zh",
+    "demo": "node bin/cli.js translate -i examples/StarRocksTest.md -l zh -s en",
     "setup": "node bin/cli.js setup",
     "languages": "node bin/cli.js languages",
     "lint": "eslint bin/**/*.js src/**/*.js",
-    "test": "rm -f examples/StarRocksTest_simplified_chinese.md && node bin/cli.js translate -i examples/StarRocksTest.md -l zh"
+    "test": "rm -f examples/StarRocksTest_zh.md && node bin/cli.js translate -i examples/StarRocksTest.md -l zh -s en"
   },
   "keywords": [
     "markdown",
