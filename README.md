@@ -4,7 +4,11 @@ A powerful command-line tool that uses Google Gemini AI to translate markdown an
 
 ## Usage at StarRocks
 
-This code and most of the README are from the team at [PlayCanvas](https://github.com/playcanvas/markdown-translator). The only bit we add is the `-s, --source` option to allow specifying the source language as we translate from both English and Chinese.
+This code and most of the README are from the team at [PlayCanvas](https://github.com/playcanvas/markdown-translator). The only changes are:
+- StarRocks specific prompt
+- StarRocks specific dictionary
+- StarRocks specific words that should always be in English
+- the `-s, --source` option to allow specifying the source language as we translate from both English and Chinese.
 
 ## Options
 
@@ -45,6 +49,32 @@ This code and most of the README are from the team at [PlayCanvas](https://githu
    ```sh
    node bin/cli.js translate -h
    ```
+   
+## Example use on your workstation with the StarRocks repo
+   ```sh
+   # Export your Gemini API key
+   export GEMINI_API_KEY="AIxxxxxxxxxxxxxxxx"
+   
+   # in the markdown-translator repo directory install the translator globally on your system:
+   npm install
+   npm link
+   
+   # now in the starrocks/starrocks repo dir
+   # view the options:
+   md-translate translate -h
+
+   # Example, translate the English architecture doc to Japanese:
+   md-translate translate -s en -i docs/en/introduction/Architecture.md -l ja -o docs/ja/introduction/Architecture.md
+   ```
+## Example use in GitHub PRs
+
+1. check the boxes
+
+    <img width="907" height="622" alt="image" src="https://github.com/user-attachments/assets/7a1198f6-a9f5-4dd2-b57d-aa07d0c5b9ff" />
+
+2. Add a /translate comment (docs-maintainers only at the moment)
+
+    <img width="567" height="211" alt="image" src="https://github.com/user-attachments/assets/621bbd58-bb1b-438e-9c5c-fef44857e308" />
 
 ## Features
 
