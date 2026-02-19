@@ -1,3 +1,9 @@
+Default: デフォルト
+Type: タイプ
+Unit: 単位
+Is mutable: 可変
+Description: 説明
+Introduced in: 導入バージョン
 FEs: FE
 BEs: BE
 distributed architecture: 分散アーキテクチャ
