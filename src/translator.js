@@ -326,14 +326,6 @@ class MarkdownTranslator {
         const translatedContent = translatedChunks.join('\n\n');
         const finalContent = translatedContent.endsWith('\n') ? translatedContent : `${translatedContent}\n`;
 
-        // Final check of entire file and always log result
-        const finalMismatches = this.getCompletenessMismatches(content, finalContent);
-        console.log(chalk.gray(`[final check] Entire file completeness: ${finalMismatches.length === 0 ? '✅ PASS' : '❌ FAIL'} ${finalMismatches.length > 0 ? `(${finalMismatches.join('; ')})` : ''}`));
-
-        if (finalMismatches.length > 0) {
-            throw new Error(`Final translation completeness check failed: ${finalMismatches.join('; ')}`);
-        }
-
         return finalContent;
     }
 
@@ -487,6 +479,14 @@ class MarkdownTranslator {
                 logChunkMetadata
             );
 
+            // Final check of entire file and always log result
+            const finalMismatches = this.getCompletenessMismatches(content, translatedContent);
+            console.log(chalk.gray(`[final check] Entire file completeness: ${finalMismatches.length === 0 ? '✅ PASS' : '❌ FAIL'} ${finalMismatches.length > 0 ? `(${finalMismatches.join('; ')})` : ''}`));
+
+            if (finalMismatches.length > 0) {
+                throw new Error(`Final translation completeness check failed: ${finalMismatches.join('; ')}`);
+            }
+
             // Ensure output directory exists
             const outputDir = path.dirname(outputPath);
             await fs.ensureDir(outputDir);
@@ -504,8 +504,8 @@ class MarkdownTranslator {
                 translatedLength: translatedContent.length
             };
         } catch (error) {
-            // If final check failed and we have translated content, write as .invalid
-            if (translatedContent && error.message.includes('Final translation completeness check failed')) {
+            // If we have translated content, always write as .invalid on any error
+            if (translatedContent) {
                 const invalidPath = outputPath.endsWith('.md') || outputPath.endsWith('.markdown') || outputPath.endsWith('.mdx') ?
                     outputPath.replace(/\.(md|markdown|mdx)$/, '.invalid') :
                     `${outputPath}.invalid`;
