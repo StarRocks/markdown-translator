@@ -25,6 +25,9 @@ This code and most of the README are from the team at [PlayCanvas](https://githu
                           preserve structure)
   --suffix <suffix>       Custom suffix for output files (default: language
                           name)
+   --completeness <mode>   Completeness check mode: warn, fail, or off (default:
+                                       warn)
+   --log-chunk-metadata    Log API metadata for each chunk (and on mismatches)
   -h, --help              display help for command
 ```
 
@@ -186,6 +189,8 @@ Options:
   -k, --key <apikey>       Google Gemini API key (optional)
   --flat                   Use flat structure in output directory (default: preserve structure)
   --suffix <suffix>        Custom suffix for output files (default: language name)
+   --completeness <mode>    Completeness check mode: warn, fail, or off (default: warn)
+   --log-chunk-metadata     Log API metadata for each chunk (and on mismatches)
 ```
 
 #### `languages` - List supported languages

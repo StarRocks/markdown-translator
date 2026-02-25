@@ -36,6 +36,7 @@ program
 .option('-k, --key <apikey>', 'Google Gemini API key (or set GEMINI_API_KEY env var)')
 .option('--flat', 'Use flat structure in output directory (default: preserve structure)')
 .option('--suffix <suffix>', 'Custom suffix for output files (default: language name)')
+.option('--log-chunk-metadata', 'Log API metadata for each chunk')
 .action(async (options) => {
     console.log(chalk.cyan(banner));
 
@@ -100,7 +101,8 @@ program
                         progressCallback,
                         preserveStructure: !options.flat,
                         suffix: options.suffix,
-                        source: options.source || 'English'
+                        source: options.source || 'English',
+                        logChunkMetadata: Boolean(options.logChunkMetadata)
                     }
                 );
 
@@ -190,7 +192,8 @@ program
                     outputPath,
                     options.language,
                     options.source || 'English',
-                    progressCallback
+                    progressCallback,
+                    Boolean(options.logChunkMetadata)
                 );
 
                 spinner.succeed(chalk.green('✅ Translation completed successfully!'));
