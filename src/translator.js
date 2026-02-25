@@ -132,6 +132,55 @@ class MarkdownTranslator {
     }
 
     /**
+     * Build the next chunk from line array respecting section boundaries (### headers).
+     * This prevents breaking mid-section which causes context loss and spurious list items.
+     * Using H3 headers provides good semantic grouping while keeping chunk count reasonable.
+     *
+     * @param {Array} lines - Markdown lines
+     * @param {number} startIndex - Starting line index
+     * @param {number} maxChunkSize - Maximum size per chunk
+     * @returns {object} Chunk and next index
+     */
+    buildNextChunkAtSectionBoundary(lines, startIndex, maxChunkSize) {
+        let currentChunk = '';
+        let index = startIndex;
+        const sectionHeaderRegex = /^###(?!#)\s+\S/;
+
+        while (index < lines.length) {
+            const line = lines[index];
+            const nextLen = currentChunk.length + line.length + (currentChunk ? 1 : 0);
+
+            // If next line is a section boundary (##### header) and current chunk has content, break
+            if (
+                sectionHeaderRegex.test(line) &&
+                currentChunk.length > 0
+            ) {
+                break;
+            }
+
+            // If adding this line would exceed size limit and we already have content, break
+            if (nextLen > maxChunkSize && currentChunk.length > 0) {
+                break;
+            }
+
+            // If this single line is huge (oversized section), still need to add it to avoid infinite loop
+            if (nextLen > maxChunkSize && currentChunk.length === 0) {
+                currentChunk = line;
+                index += 1;
+                break;
+            }
+
+            currentChunk += (currentChunk ? '\n' : '') + line;
+            index += 1;
+        }
+
+        return {
+            chunk: currentChunk.trim(),
+            nextIndex: index
+        };
+    }
+
+    /**
      * Count chunks from line array starting at a given index.
      *
      * @param {Array} lines - Markdown lines
@@ -144,7 +193,7 @@ class MarkdownTranslator {
         let index = startIndex;
 
         while (index < lines.length) {
-            const { nextIndex } = this.buildNextChunk(lines, index, maxChunkSize);
+            const { nextIndex } = this.buildNextChunkAtSectionBoundary(lines, index, maxChunkSize);
             if (nextIndex === index) {
                 break;
             }
@@ -239,7 +288,10 @@ class MarkdownTranslator {
         progressCallback,
         logChunkMetadata = false
     ) {
-        const lines = content.split('\n');
+        // Strip HTML comments before translation (comments cause model confusion)
+        const { commentlessContent, commentsMap } = this.stripHtmlComments(content);
+        
+        const lines = commentlessContent.split('\n');
         let currentChunkSize = MarkdownTranslator.DEFAULT_CHUNK_SIZE;
         const minChunkSize = MarkdownTranslator.MIN_CHUNK_SIZE;
         const translatedChunks = [];
@@ -261,7 +313,7 @@ class MarkdownTranslator {
             let nextIndex = index;
 
             while (true) {
-                const built = this.buildNextChunk(lines, index, currentChunkSize);
+                const built = this.buildNextChunkAtSectionBoundary(lines, index, currentChunkSize);
                 chunk = built.chunk;
                 nextIndex = built.nextIndex;
 
@@ -273,7 +325,12 @@ class MarkdownTranslator {
                 translated = await this.translateChunk(chunk, targetLanguage, sourceLanguage);
 
                 // Always check completeness for this chunk
+                const chunkStats = this.getMarkdownStats(chunk);
+                const translatedStats = this.getMarkdownStats(translated.text);
                 const mismatches = this.getCompletenessMismatches(chunk, translated.text);
+                
+                // Log chunk completeness with full details
+                console.log(chalk.gray(`[chunk ${chunkIndex + 1}/${estimatedTotal}] completeness check: Original(H:${chunkStats.headings},C:${chunkStats.codeBlocks}) vs Translated(H:${translatedStats.headings},C:${translatedStats.codeBlocks}) - ${mismatches.length === 0 ? '✅ PASS' : '❌ FAIL'}`));
 
                 // Always log chunk metadata and comparison results
                 this.logChunkMetadata(chunkIndex + 1, estimatedTotal, translated.metadata, mismatches);
@@ -326,7 +383,10 @@ class MarkdownTranslator {
         const translatedContent = translatedChunks.join('\n\n');
         const finalContent = translatedContent.endsWith('\n') ? translatedContent : `${translatedContent}\n`;
 
-        return finalContent;
+        // Restore HTML comments
+        const contentWithComments = this.restoreHtmlComments(finalContent, commentsMap);
+
+        return contentWithComments;
     }
 
     /**
@@ -394,6 +454,40 @@ class MarkdownTranslator {
         }
 
         return mismatches;
+    }
+
+    /**
+     * Strip HTML comments from content and store them for later restoration.
+     *
+     * @param {string} content - Content with HTML comments
+     * @returns {object} Object with commentlessContent and commentsMap
+     */
+    stripHtmlComments(content) {
+        const commentsMap = [];
+        let placeholder = 0;
+        const commentlessContent = content.replace(
+            /<!--(?:(?!<!--)[\s\S])*?-->/g,
+            (match) => {
+                commentsMap.push(match);
+                return `__HTML_COMMENT_${placeholder++}__`;
+            }
+        );
+        return { commentlessContent, commentsMap };
+    }
+
+    /**
+     * Restore HTML comments that were stripped from content.
+     *
+     * @param {string} content - Content with comment placeholders
+     * @param {Array} commentsMap - Array of comments to restore
+     * @returns {string} Content with comments restored
+     */
+    restoreHtmlComments(content, commentsMap) {
+        let result = content;
+        commentsMap.forEach((comment, index) => {
+            result = result.replace(`__HTML_COMMENT_${index}__`, comment);
+        });
+        return result;
     }
 
     /**
@@ -480,8 +574,16 @@ class MarkdownTranslator {
             );
 
             // Final check of entire file and always log result
-            const finalMismatches = this.getCompletenessMismatches(content, translatedContent);
-            console.log(chalk.gray(`[final check] Entire file completeness: ${finalMismatches.length === 0 ? '✅ PASS' : '❌ FAIL'} ${finalMismatches.length > 0 ? `(${finalMismatches.join('; ')})` : ''}`));
+            // Strip comments for accurate comparison (comments are preserved as-is)
+            const { commentlessContent: originalNoComments } = this.stripHtmlComments(content);
+            const { commentlessContent: translatedNoComments } = this.stripHtmlComments(translatedContent);
+            
+            // Get stats for both versions
+            const originalStats = this.getMarkdownStats(originalNoComments);
+            const translatedStats = this.getMarkdownStats(translatedNoComments);
+            
+            const finalMismatches = this.getCompletenessMismatches(originalNoComments, translatedNoComments);
+            console.log(chalk.gray(`[final check] Entire file completeness: Original(H:${originalStats.headings},C:${originalStats.codeBlocks}) vs Translated(H:${translatedStats.headings},C:${translatedStats.codeBlocks}) - ${finalMismatches.length === 0 ? '✅ PASS' : '❌ FAIL'} ${finalMismatches.length > 0 ? `(${finalMismatches.join('; ')})` : ''}`));
 
             if (finalMismatches.length > 0) {
                 throw new Error(`Final translation completeness check failed: ${finalMismatches.join('; ')}`);

@@ -44,4 +44,12 @@ ${never_translate}
    - Do NOT remove <br> tags.
    - This is required to maintain table structure.
 
-2. **PRESERVE MARKDOWN TABLES**: Do not change the structure of Markdown tables. Keep the columns and rows exactly as provided.
+2. **PRESERVE MARKDOWN LISTS**: Do not convert Markdown lists to HTML.
+   - If the source text uses Markdown list syntax (-, *, +, or numbered lists), keep it in Markdown format.
+   - Do NOT convert Markdown lists to HTML <ul>, <li>, or <ol> tags.
+   - Preserve indentation of nested lists exactly as provided.
+   - Do NOT create extra list item lines. If the source has 4 list items, the translation must have exactly 4 list items.
+   - Do NOT split a single list item value across multiple lines. Keep each list item on a single line.
+   - Do NOT create placeholder list items with empty values (e.g., `- key: -`). If an item exists in the source, it must be translated, not left as a placeholder.
+
+3. **PRESERVE MARKDOWN TABLES**: Do not change the structure of Markdown tables. Keep the columns and rows exactly as provided.
