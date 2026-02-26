@@ -34,6 +34,21 @@ This code and most of the README are from the team at [PlayCanvas](https://githu
 
 `--ast-mvp` is optional and keeps the existing translation pipeline unchanged unless explicitly enabled.
 
+### Interpreting AST parse failures
+
+In AST mode, each chunk asks the model to return a strict JSON array of `{ id, text }` items.
+
+- Parse errors such as `Expected ',' or '}'` or `Expected ':' after property name` usually mean the model returned malformed JSON for that chunk.
+- These are response-format failures, not semantic translation failures.
+- `finishReason: STOP` with parse errors means the output completed, but the JSON structure was invalid.
+- When you see `json repair retry`, the tool requested a strict JSON retry and recovered automatically.
+- When you see `split fallback recovered X/Y missing ids`, the tool retried unresolved IDs in smaller sub-batches and merged recovered results back into the chunk.
+
+How to read the outcome:
+
+- `AST completeness check: Translated IDs N/N - ✅ PASS` means the chunk is fully recovered, even if repair notes are present.
+- Missing IDs after all retries are the only case that indicates unresolved chunk-level translation for those specific items.
+
 ## Quick Start
 
 1. cd into the root of this repo
