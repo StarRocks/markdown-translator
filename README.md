@@ -25,11 +25,26 @@ This code and most of the README are from the team at [PlayCanvas](https://githu
                           preserve structure)
   --suffix <suffix>       Custom suffix for output files (default: language
                           name)
-   --completeness <mode>   Completeness check mode: warn, fail, or off (default:
-                                       warn)
-   --log-chunk-metadata    Log API metadata for each chunk (and on mismatches)
+   --log-chunk-metadata    Log API metadata for each chunk
   -h, --help              display help for command
 ```
+
+The translator now uses the AST pipeline by default.
+
+### Interpreting AST parse failures
+
+In AST mode, each chunk asks the model to return a strict JSON array of `{ id, text }` items.
+
+- Parse errors such as `Expected ',' or '}'` or `Expected ':' after property name` usually mean the model returned malformed JSON for that chunk.
+- These are response-format failures, not semantic translation failures.
+- `finishReason: STOP` with parse errors means the output completed, but the JSON structure was invalid.
+- When you see `json repair retry`, the tool requested a strict JSON retry and recovered automatically.
+- When you see `split fallback recovered X/Y missing ids`, the tool retried unresolved IDs in smaller sub-batches and merged recovered results back into the chunk.
+
+How to read the outcome:
+
+- `AST completeness check: Translated IDs N/N - ✅ PASS` means the chunk is fully recovered, even if repair notes are present.
+- Missing IDs after all retries are the only case that indicates unresolved chunk-level translation for those specific items.
 
 ## Quick Start
 
@@ -153,6 +168,9 @@ md-translate translate -i docs/guide.md -l French -o docs/guide_fr.md
 
 # Translate using API key argument
 md-translate translate -i file.md -l German --key your-api-key
+
+# Translate with AST mode (default)
+md-translate translate -i examples/External_table.md -l Japanese
 ```
 
 ### Batch Processing
@@ -189,8 +207,7 @@ Options:
   -k, --key <apikey>       Google Gemini API key (optional)
   --flat                   Use flat structure in output directory (default: preserve structure)
   --suffix <suffix>        Custom suffix for output files (default: language name)
-   --completeness <mode>    Completeness check mode: warn, fail, or off (default: warn)
-   --log-chunk-metadata     Log API metadata for each chunk (and on mismatches)
+   --log-chunk-metadata     Log API metadata for each chunk
 ```
 
 #### `languages` - List supported languages
