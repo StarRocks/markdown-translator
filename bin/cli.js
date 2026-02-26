@@ -9,6 +9,7 @@ import ora from 'ora';
 
 
 import MarkdownTranslator from '../src/translator.js';
+import AstMarkdownTranslator from '../src/translator_ast_mvp.js';
 
 const program = new Command();
 
@@ -29,14 +30,15 @@ program
 .command('translate')
 .description('Translate markdown files to specified language')
 .requiredOption('-i, --input <pattern>', 'Input file path or glob pattern (e.g., "*.md", "docs/**/*.md")')
-    .requiredOption('-l, --language <lang>', 'Target language (e.g., Spanish, French, German)')
-    .option('-s, --source <lang>', 'Source language (default: English)')
+.requiredOption('-l, --language <lang>', 'Target language (e.g., Spanish, French, German)')
+.option('-s, --source <lang>', 'Source language (default: English)')
 .option('-o, --output <file>', 'Output file path (for single file translation)')
 .option('-d, --output-dir <dir>', 'Output directory (for batch translation or single file)')
 .option('-k, --key <apikey>', 'Google Gemini API key (or set GEMINI_API_KEY env var)')
 .option('--flat', 'Use flat structure in output directory (default: preserve structure)')
 .option('--suffix <suffix>', 'Custom suffix for output files (default: language name)')
 .option('--log-chunk-metadata', 'Log API metadata for each chunk')
+.option('--ast-mvp', 'Use experimental AST-based translation pipeline (opt-in)')
 .action(async (options) => {
     console.log(chalk.cyan(banner));
 
@@ -51,7 +53,8 @@ program
         }
 
         // Initialize translator
-        const translator = new MarkdownTranslator(apiKey);
+        const TranslatorClass = options.astMvp ? AstMarkdownTranslator : MarkdownTranslator;
+        const translator = new TranslatorClass(apiKey);
 
         // Check if input is a glob pattern (contains wildcards or multiple matches)
         const inputPattern = options.input;
@@ -78,6 +81,7 @@ program
             console.log(chalk.gray(`   Source:   ${options.source || 'English'}`));
             console.log(chalk.gray(`   Language: ${options.language}`));
             console.log(chalk.gray(`   Structure: ${options.flat ? 'Flat' : 'Preserved'}`));
+            console.log(chalk.gray(`   Mode: ${options.astMvp ? 'AST MVP (experimental)' : 'Standard'}`));
             console.log('');
 
             // Create progress handler
@@ -174,6 +178,7 @@ program
             console.log(chalk.gray(`   Output:   ${outputPath}`));
             console.log(chalk.gray(`   Source:   ${options.source || 'English'}`));
             console.log(chalk.gray(`   Language: ${options.language}`));
+            console.log(chalk.gray(`   Mode:     ${options.astMvp ? 'AST MVP (experimental)' : 'Standard'}`));
             console.log('');
 
             // Create progress spinner

@@ -17,6 +17,10 @@ class MarkdownTranslator {
 
     static CHUNK_RETRY_LIMIT = 3;
 
+    static CHUNK_TARGET_MIN = 6;
+
+    static CHUNK_TARGET_MAX = 14;
+
     constructor(apiKey) {
         if (!apiKey) {
             throw new Error('Google Gemini API key is required');
@@ -132,25 +136,50 @@ class MarkdownTranslator {
     }
 
     /**
-     * Build the next chunk from line array respecting section boundaries (### headers).
-     * This prevents breaking mid-section which causes context loss and spurious list items.
-     * Using H3 headers provides good semantic grouping while keeping chunk count reasonable.
+     * Build the next chunk from line array using a chunk strategy.
      *
      * @param {Array} lines - Markdown lines
      * @param {number} startIndex - Starting line index
      * @param {number} maxChunkSize - Maximum size per chunk
+     * @param {string} chunkStrategy - one of: none, h2, h3, h4, h5, h6
      * @returns {object} Chunk and next index
      */
-    buildNextChunkAtSectionBoundary(lines, startIndex, maxChunkSize) {
+    buildNextChunkWithStrategy(lines, startIndex, maxChunkSize, chunkStrategy = 'h3') {
+        if (chunkStrategy === 'none') {
+            return this.buildNextChunk(lines, startIndex, maxChunkSize);
+        }
+
+        const levelMatch = chunkStrategy.match(/^h([2-6])$/i);
+        if (!levelMatch) {
+            return this.buildNextChunk(lines, startIndex, maxChunkSize);
+        }
+
+        const headingLevel = Number(levelMatch[1]);
+        return this.buildNextChunkAtSectionBoundary(lines, startIndex, maxChunkSize, headingLevel);
+    }
+
+    /**
+     * Build the next chunk from line array respecting section boundaries.
+     * This prevents breaking mid-section which causes context loss and spurious list items.
+     * Heading level is configurable (H2-H6) to balance chunk count vs contextual cohesion.
+     *
+     * @param {Array} lines - Markdown lines
+     * @param {number} startIndex - Starting line index
+     * @param {number} maxChunkSize - Maximum size per chunk
+     * @param {number} headingLevel - Markdown heading level (2-6) for boundaries
+     * @returns {object} Chunk and next index
+     */
+    buildNextChunkAtSectionBoundary(lines, startIndex, maxChunkSize, headingLevel = 3) {
         let currentChunk = '';
         let index = startIndex;
-        const sectionHeaderRegex = /^###(?!#)\s+\S/;
+        const safeLevel = Math.min(6, Math.max(2, Number(headingLevel) || 3));
+        const sectionHeaderRegex = new RegExp(`^\\s{0,3}#{${safeLevel}}(?!#)\\s+\\S`);
 
         while (index < lines.length) {
             const line = lines[index];
             const nextLen = currentChunk.length + line.length + (currentChunk ? 1 : 0);
 
-            // If next line is a section boundary (##### header) and current chunk has content, break
+            // If next line is a section boundary and current chunk has content, break
             if (
                 sectionHeaderRegex.test(line) &&
                 currentChunk.length > 0
@@ -181,19 +210,69 @@ class MarkdownTranslator {
     }
 
     /**
-     * Count chunks from line array starting at a given index.
+     * Get next finer chunk strategy.
+     *
+     * @param {string} chunkStrategy - Current chunk strategy
+     * @returns {string|null} Next finer strategy or null if already finest
+     */
+    getNextFinerChunkStrategy(chunkStrategy) {
+        const order = ['none', 'h2', 'h3', 'h4', 'h5', 'h6'];
+        const idx = order.indexOf(chunkStrategy);
+        if (idx < 0 || idx >= order.length - 1) {
+            return null;
+        }
+        return order[idx + 1];
+    }
+
+    /**
+     * Compute a reduced chunk size after a failed attempt.
+     * Uses the actual failed chunk length and retry stage to avoid over/under-shrinking.
+     *
+     * @param {number} currentChunkSize - Current chunk size cap
+     * @param {number} failedChunkLength - Actual failed chunk length
+     * @param {number} minChunkSize - Minimum allowed chunk size
+     * @param {number} retryAttempt - Zero-based retry attempt count
+     * @returns {number} Next chunk size cap
+     */
+    getReducedChunkSize(currentChunkSize, failedChunkLength, minChunkSize, retryAttempt) {
+        const stageFactors = [0.65, 0.5, 0.4];
+        const factor = stageFactors[Math.min(retryAttempt, stageFactors.length - 1)];
+
+        const basedOnFailedChunk = Math.floor(failedChunkLength * factor);
+        const basedOnCurrentSize = Math.floor(currentChunkSize * factor);
+        let nextSize = Math.min(basedOnFailedChunk, basedOnCurrentSize);
+
+        if (Number.isNaN(nextSize) || !Number.isFinite(nextSize)) {
+            nextSize = Math.floor(currentChunkSize * 0.5);
+        }
+
+        nextSize = Math.max(minChunkSize, nextSize);
+
+        if (nextSize >= currentChunkSize) {
+            const fallback = Math.max(minChunkSize, Math.floor(currentChunkSize * 0.8));
+            if (fallback < currentChunkSize) {
+                nextSize = fallback;
+            }
+        }
+
+        return nextSize;
+    }
+
+    /**
+     * Count chunks from line array starting at a given index and strategy.
      *
      * @param {Array} lines - Markdown lines
      * @param {number} startIndex - Starting line index
      * @param {number} maxChunkSize - Maximum size per chunk
+     * @param {string} chunkStrategy - one of: none, h2, h3, h4, h5, h6
      * @returns {number} Estimated chunk count
      */
-    countChunksFromLines(lines, startIndex, maxChunkSize) {
+    countChunksFromLines(lines, startIndex, maxChunkSize, chunkStrategy = 'h3') {
         let count = 0;
         let index = startIndex;
 
         while (index < lines.length) {
-            const { nextIndex } = this.buildNextChunkAtSectionBoundary(lines, index, maxChunkSize);
+            const { nextIndex } = this.buildNextChunkWithStrategy(lines, index, maxChunkSize, chunkStrategy);
             if (nextIndex === index) {
                 break;
             }
@@ -202,6 +281,107 @@ class MarkdownTranslator {
         }
 
         return count;
+    }
+
+    /**
+     * Count heading levels (H2-H6) outside fenced code blocks.
+     *
+     * @param {Array} lines - Markdown lines
+     * @returns {object} Heading counts by level
+     */
+    getHeadingLevelCounts(lines) {
+        let inCodeBlock = false;
+        let fenceChar = null;
+        let fenceLen = 0;
+
+        const counts = {
+            h2: 0,
+            h3: 0,
+            h4: 0,
+            h5: 0,
+            h6: 0
+        };
+
+        for (const line of lines) {
+            const fenceMatch = line.match(/^\s*([`~]{3,})/);
+            if (fenceMatch) {
+                const currentFence = fenceMatch[1];
+                const currentChar = currentFence[0];
+                const currentLen = currentFence.length;
+
+                if (!inCodeBlock) {
+                    inCodeBlock = true;
+                    fenceChar = currentChar;
+                    fenceLen = currentLen;
+                } else if (currentChar === fenceChar && currentLen >= fenceLen) {
+                    inCodeBlock = false;
+                    fenceChar = null;
+                    fenceLen = 0;
+                }
+
+                continue;
+            }
+
+            if (inCodeBlock) {
+                continue;
+            }
+
+            const headingMatch = line.match(/^\s{0,3}(#{2,6})\s+\S/);
+            if (!headingMatch) {
+                continue;
+            }
+
+            const level = headingMatch[1].length;
+            const key = `h${level}`;
+            if (Object.prototype.hasOwnProperty.call(counts, key)) {
+                counts[key] += 1;
+            }
+        }
+
+        return counts;
+    }
+
+    /**
+     * Choose an initial chunk strategy using file size and heading density.
+     *
+     * @param {Array} lines - Markdown lines
+     * @param {number} contentLength - Content length in bytes/chars
+     * @param {number} maxChunkSize - Maximum size per chunk
+     * @returns {string} Initial chunk strategy
+     */
+    chooseInitialChunkStrategy(lines, contentLength, maxChunkSize) {
+        const headingCounts = this.getHeadingLevelCounts(lines);
+        const targetMidpoint = Math.floor((MarkdownTranslator.CHUNK_TARGET_MIN + MarkdownTranslator.CHUNK_TARGET_MAX) / 2);
+
+        const preferStructuredBoundaries = contentLength > (maxChunkSize * 1.5);
+        const candidateOrder = preferStructuredBoundaries ?
+            ['h2', 'h3', 'h4', 'h5', 'h6', 'none'] :
+            ['none', 'h2', 'h3', 'h4', 'h5', 'h6'];
+
+        let bestStrategy = candidateOrder[0];
+        let bestDistance = Number.POSITIVE_INFINITY;
+        let bestEstimated = Number.POSITIVE_INFINITY;
+
+        for (const strategy of candidateOrder) {
+            if (strategy !== 'none' && headingCounts[strategy] === 0) {
+                continue;
+            }
+
+            const estimated = this.countChunksFromLines(lines, 0, maxChunkSize, strategy);
+
+            if (estimated >= MarkdownTranslator.CHUNK_TARGET_MIN && estimated <= MarkdownTranslator.CHUNK_TARGET_MAX) {
+                return strategy;
+            }
+
+            const distance = Math.abs(estimated - targetMidpoint);
+            if (distance < bestDistance || (distance === bestDistance && estimated < bestEstimated)) {
+                bestDistance = distance;
+                bestEstimated = estimated;
+                bestStrategy = strategy;
+            }
+        }
+
+        return bestStrategy;
     }
 
     /**
@@ -290,17 +470,29 @@ class MarkdownTranslator {
     ) {
         // Strip HTML comments before translation (comments cause model confusion)
         const { commentlessContent, commentsMap } = this.stripHtmlComments(content);
-        
+
         const lines = commentlessContent.split('\n');
         let currentChunkSize = MarkdownTranslator.DEFAULT_CHUNK_SIZE;
         const minChunkSize = MarkdownTranslator.MIN_CHUNK_SIZE;
         const translatedChunks = [];
 
+        let currentChunkStrategy = this.chooseInitialChunkStrategy(
+            lines,
+            commentlessContent.length,
+            currentChunkSize
+        );
+
         let index = 0;
         let chunkIndex = 0;
-        let estimatedTotal = this.countChunksFromLines(lines, index, currentChunkSize);
+        let estimatedTotal = this.countChunksFromLines(lines, index, currentChunkSize, currentChunkStrategy);
 
-        console.log(chalk.blue(`Translating ${estimatedTotal} chunk(s) from ${sourceLanguage} to ${targetLanguage}...`));
+        const headingCounts = this.getHeadingLevelCounts(lines);
+
+        console.log(chalk.blue(
+            `Translating ${estimatedTotal} chunk(s) from ${sourceLanguage} to ${targetLanguage} ` +
+            `(strategy: ${currentChunkStrategy}, size: ${currentChunkSize})...`
+        ));
+        console.log(chalk.gray(`Heading counts: ${JSON.stringify(headingCounts)}`));
 
         while (index < lines.length) {
             if (progressCallback) {
@@ -311,9 +503,10 @@ class MarkdownTranslator {
             let translated = null;
             let chunk = '';
             let nextIndex = index;
+            let chunkStrategyForAttempt = currentChunkStrategy;
 
             while (true) {
-                const built = this.buildNextChunkAtSectionBoundary(lines, index, currentChunkSize);
+                const built = this.buildNextChunkWithStrategy(lines, index, currentChunkSize, chunkStrategyForAttempt);
                 chunk = built.chunk;
                 nextIndex = built.nextIndex;
 
@@ -328,7 +521,7 @@ class MarkdownTranslator {
                 const chunkStats = this.getMarkdownStats(chunk);
                 const translatedStats = this.getMarkdownStats(translated.text);
                 const mismatches = this.getCompletenessMismatches(chunk, translated.text);
-                
+
                 // Log chunk completeness with full details
                 console.log(chalk.gray(`[chunk ${chunkIndex + 1}/${estimatedTotal}] completeness check: Original(H:${chunkStats.headings},C:${chunkStats.codeBlocks}) vs Translated(H:${translatedStats.headings},C:${translatedStats.codeBlocks}) - ${mismatches.length === 0 ? '✅ PASS' : '❌ FAIL'}`));
 
@@ -336,29 +529,83 @@ class MarkdownTranslator {
                 this.logChunkMetadata(chunkIndex + 1, estimatedTotal, translated.metadata, mismatches);
 
                 const finishReason = translated.metadata?.finishReason || '';
+                const isStopFinish = finishReason === 'STOP';
+                const hasNonStopFinish = !isStopFinish;
                 const hasMismatches = mismatches.length > 0;
+                const finerStrategy = hasMismatches ? this.getNextFinerChunkStrategy(chunkStrategyForAttempt) : null;
+                const canReduceSize = currentChunkSize > minChunkSize;
+                const shouldRetryForFailure = hasNonStopFinish || hasMismatches;
                 const shouldRetry =
-                    (finishReason === 'MAX_TOKENS' || hasMismatches) &&
-                    currentChunkSize > minChunkSize &&
-                    attempt < MarkdownTranslator.CHUNK_RETRY_LIMIT;
+                    shouldRetryForFailure &&
+                    attempt < MarkdownTranslator.CHUNK_RETRY_LIMIT &&
+                    (canReduceSize || Boolean(finerStrategy));
 
                 if (!shouldRetry) {
                     // Log failure but continue (allow tech writer to hand-edit)
                     if (hasMismatches) {
                         console.warn(chalk.yellow(`⚠️  Chunk ${chunkIndex + 1} has unresolved mismatches: ${mismatches.join('; ')} - continuing with next chunk`));
                     }
+                    if (hasNonStopFinish) {
+                        console.warn(chalk.yellow(`⚠️  Chunk ${chunkIndex + 1} ended with finishReason=${finishReason} and could not be retried further - continuing with next chunk`));
+                    }
                     break;
                 }
 
-                const nextSize = Math.max(minChunkSize, Math.floor(currentChunkSize / 2));
+                // Any non-STOP finish reason must retry with smaller chunk size.
+                if (hasNonStopFinish) {
+                    const nextSize = this.getReducedChunkSize(
+                        currentChunkSize,
+                        chunk.length,
+                        minChunkSize,
+                        attempt
+                    );
+
+                    if (nextSize === currentChunkSize) {
+                        console.warn(chalk.yellow(`⚠️  Chunk ${chunkIndex + 1} finishReason=${finishReason} but chunk size cannot be reduced further (${currentChunkSize})`));
+                        break;
+                    }
+
+                    attempt += 1;
+                    currentChunkSize = nextSize;
+                    estimatedTotal = chunkIndex + this.countChunksFromLines(lines, index, currentChunkSize, currentChunkStrategy);
+                    console.warn(chalk.yellow(
+                        `Retrying chunk ${chunkIndex + 1} with smaller size: ${currentChunkSize} ` +
+                        `(finishReason: ${finishReason}, failedChunkLength: ${chunk.length}, strategy: ${currentChunkStrategy})`
+                    ));
+                    continue;
+                }
+
+                // On mismatch, move to a finer section boundary first and keep it globally.
+                if (hasMismatches) {
+                    if (finerStrategy) {
+                        attempt += 1;
+                        chunkStrategyForAttempt = finerStrategy;
+                        currentChunkStrategy = finerStrategy;
+                        estimatedTotal = chunkIndex + this.countChunksFromLines(lines, index, currentChunkSize, currentChunkStrategy);
+                        console.warn(chalk.yellow(
+                            `Retrying chunk ${chunkIndex + 1} with finer strategy: ${currentChunkStrategy}`
+                        ));
+                        continue;
+                    }
+                }
+
+                const nextSize = this.getReducedChunkSize(
+                    currentChunkSize,
+                    chunk.length,
+                    minChunkSize,
+                    attempt
+                );
                 if (nextSize === currentChunkSize) {
                     break;
                 }
 
                 attempt += 1;
                 currentChunkSize = nextSize;
-                estimatedTotal = chunkIndex + this.countChunksFromLines(lines, index, currentChunkSize);
-                console.warn(chalk.yellow(`Retrying chunk ${chunkIndex + 1} with smaller size: ${currentChunkSize}`));
+                estimatedTotal = chunkIndex + this.countChunksFromLines(lines, index, currentChunkSize, currentChunkStrategy);
+                console.warn(chalk.yellow(
+                    `Retrying chunk ${chunkIndex + 1} with smaller size: ${currentChunkSize} ` +
+                    `(strategy: ${currentChunkStrategy})`
+                ));
             }
 
             if (!chunk) {
@@ -577,11 +824,11 @@ class MarkdownTranslator {
             // Strip comments for accurate comparison (comments are preserved as-is)
             const { commentlessContent: originalNoComments } = this.stripHtmlComments(content);
             const { commentlessContent: translatedNoComments } = this.stripHtmlComments(translatedContent);
-            
+
             // Get stats for both versions
             const originalStats = this.getMarkdownStats(originalNoComments);
             const translatedStats = this.getMarkdownStats(translatedNoComments);
-            
+
             const finalMismatches = this.getCompletenessMismatches(originalNoComments, translatedNoComments);
             console.log(chalk.gray(`[final check] Entire file completeness: Original(H:${originalStats.headings},C:${originalStats.codeBlocks}) vs Translated(H:${translatedStats.headings},C:${translatedStats.codeBlocks}) - ${finalMismatches.length === 0 ? '✅ PASS' : '❌ FAIL'} ${finalMismatches.length > 0 ? `(${finalMismatches.join('; ')})` : ''}`));
 

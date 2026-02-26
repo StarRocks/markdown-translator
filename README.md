@@ -28,8 +28,11 @@ This code and most of the README are from the team at [PlayCanvas](https://githu
    --completeness <mode>   Completeness check mode: warn, fail, or off (default:
                                        warn)
    --log-chunk-metadata    Log API metadata for each chunk (and on mismatches)
+   --ast-mvp               Use experimental AST-based translation pipeline (opt-in)
   -h, --help              display help for command
 ```
+
+`--ast-mvp` is optional and keeps the existing translation pipeline unchanged unless explicitly enabled.
 
 ## Quick Start
 
@@ -153,6 +156,9 @@ md-translate translate -i docs/guide.md -l French -o docs/guide_fr.md
 
 # Translate using API key argument
 md-translate translate -i file.md -l German --key your-api-key
+
+# Try the experimental AST pipeline (opt-in)
+md-translate translate -i examples/External_table.md -l Japanese --ast-mvp
 ```
 
 ### Batch Processing
@@ -191,6 +197,7 @@ Options:
   --suffix <suffix>        Custom suffix for output files (default: language name)
    --completeness <mode>    Completeness check mode: warn, fail, or off (default: warn)
    --log-chunk-metadata     Log API metadata for each chunk (and on mismatches)
+   --ast-mvp                 Use experimental AST-based translation pipeline (opt-in)
 ```
 
 #### `languages` - List supported languages

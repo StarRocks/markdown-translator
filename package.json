@@ -35,7 +35,13 @@
     "glob": "^11.0.3",
     "globals": "^16.3.0",
     "ora": "^8.2.0",
-    "path": "^0.12.7"
+    "path": "^0.12.7",
+    "remark-frontmatter": "^5.0.0",
+    "remark-mdx": "^3.1.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.1.0"
   },
   "publishConfig": {
     "@StarRocks:registry": "https://npm.pkg.github.com"
