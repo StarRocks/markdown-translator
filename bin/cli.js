@@ -8,7 +8,6 @@ import fs from 'fs-extra';
 import ora from 'ora';
 
 
-import MarkdownTranslator from '../src/translator.js';
 import AstMarkdownTranslator from '../src/translator_ast_mvp.js';
 
 const program = new Command();
@@ -38,7 +37,6 @@ program
 .option('--flat', 'Use flat structure in output directory (default: preserve structure)')
 .option('--suffix <suffix>', 'Custom suffix for output files (default: language name)')
 .option('--log-chunk-metadata', 'Log API metadata for each chunk')
-.option('--ast-mvp', 'Use experimental AST-based translation pipeline (opt-in)')
 .action(async (options) => {
     console.log(chalk.cyan(banner));
 
@@ -53,8 +51,7 @@ program
         }
 
         // Initialize translator
-        const TranslatorClass = options.astMvp ? AstMarkdownTranslator : MarkdownTranslator;
-        const translator = new TranslatorClass(apiKey);
+        const translator = new AstMarkdownTranslator(apiKey);
 
         // Check if input is a glob pattern (contains wildcards or multiple matches)
         const inputPattern = options.input;
@@ -81,7 +78,7 @@ program
             console.log(chalk.gray(`   Source:   ${options.source || 'English'}`));
             console.log(chalk.gray(`   Language: ${options.language}`));
             console.log(chalk.gray(`   Structure: ${options.flat ? 'Flat' : 'Preserved'}`));
-            console.log(chalk.gray(`   Mode: ${options.astMvp ? 'AST MVP (experimental)' : 'Standard'}`));
+            console.log(chalk.gray('   Mode: AST'));
             console.log('');
 
             // Create progress handler
@@ -178,7 +175,7 @@ program
             console.log(chalk.gray(`   Output:   ${outputPath}`));
             console.log(chalk.gray(`   Source:   ${options.source || 'English'}`));
             console.log(chalk.gray(`   Language: ${options.language}`));
-            console.log(chalk.gray(`   Mode:     ${options.astMvp ? 'AST MVP (experimental)' : 'Standard'}`));
+            console.log(chalk.gray('   Mode:     AST'));
             console.log('');
 
             // Create progress spinner
@@ -235,7 +232,7 @@ program
     console.log(chalk.blue('🌍 Supported Languages:'));
     console.log('');
 
-    const languages = MarkdownTranslator.getSupportedLanguages();
+    const languages = AstMarkdownTranslator.getSupportedLanguages();
     const columns = 3;
     const rows = Math.ceil(languages.length / columns);
 

@@ -1,5 +1,6 @@
 import path from 'path';
 
+import chalk from 'chalk';
 import fs from 'fs-extra';
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkMdx from 'remark-mdx';
@@ -130,7 +131,7 @@ class AstMarkdownTranslator extends MarkdownTranslator {
         return chunks;
     }
 
-    logChunkMetadata(index, total, metadata, notes = []) {
+    logChunkMetadata(index, total, metadata, notes = [], status = 'info') {
         const noteText = notes.length > 0 ? `; notes: ${notes.join('; ')}` : '';
         const summary = {
             finishReason: metadata?.finishReason || undefined,
@@ -140,7 +141,17 @@ class AstMarkdownTranslator extends MarkdownTranslator {
             candidates: metadata?.candidates || undefined
         };
 
-        console.log(`[chunk ${index}/${total}] metadata${noteText}: ${JSON.stringify(summary)}`);
+        const message = `[chunk ${index}/${total}] metadata${noteText}: ${JSON.stringify(summary)}`;
+        if (status === 'success') {
+            console.log(chalk.green(message));
+            return;
+        }
+        if (status === 'failure') {
+            console.log(chalk.red(message));
+            return;
+        }
+
+        console.log(chalk.gray(message));
     }
 
     createAstTranslationPrompt(items, targetLanguage, sourceLanguage) {
@@ -539,7 +550,8 @@ class AstMarkdownTranslator extends MarkdownTranslator {
                     notes.push(...translated.parseWarnings);
                 }
 
-                this.logChunkMetadata(index + 1, chunks.length, translated.metadata, notes);
+                const metadataStatus = notes.some(note => note.includes('split fallback recovered')) ? 'success' : 'info';
+                this.logChunkMetadata(index + 1, chunks.length, translated.metadata, notes, metadataStatus);
 
                 if (translated.parseRecoveryMetadata) {
                     this.logChunkMetadata(index + 1, chunks.length, translated.parseRecoveryMetadata, ['json repair retry']);
@@ -550,22 +562,23 @@ class AstMarkdownTranslator extends MarkdownTranslator {
                 }
             }
 
-            console.log(
+            const completenessMessage =
                 `[chunk ${index + 1}/${chunks.length}] AST completeness check: ` +
                 `Translated IDs ${translatedCount}/${items.length} - ${completenessStatus}` +
-                `${details.length > 0 ? ` (${details.join('; ')})` : ''}`
-            );
+                `${details.length > 0 ? ` (${details.join('; ')})` : ''}`;
+
+            console.log(hasMissingIds ? chalk.red(completenessMessage) : chalk.green(completenessMessage));
         }
 
         const chunkSummaryStatus = failedChunks === 0 ? 'PASS' : 'FAIL';
-        console.log(
+        const summaryMessage =
             `[AST per-chunk summary] check=translated_ids status=${chunkSummaryStatus} ` +
-            `(passed: ${passedChunks}, failed: ${failedChunks}, total: ${chunks.length})`
-        );
+            `(passed: ${passedChunks}, failed: ${failedChunks}, total: ${chunks.length})`;
+        console.log(failedChunks === 0 ? chalk.green(summaryMessage) : chalk.red(summaryMessage));
         console.log(
-            `[AST health] parse_repairs=${parseRepairCount} ` +
+            chalk.gray(`[AST health] parse_repairs=${parseRepairCount} ` +
             `missing_id_retries=${missingIdRetryCount} ` +
-            `fallback_chunks=${fallbackChunkCount} fallback_items=${fallbackItemCount}`
+            `fallback_chunks=${fallbackChunkCount} fallback_items=${fallbackItemCount}`)
         );
 
         const translatedContent = this.restoreTranslatedContent(skeleton, translatedEntries);
@@ -611,12 +624,12 @@ class AstMarkdownTranslator extends MarkdownTranslator {
             const finalMismatches = this.getCompletenessMismatches(originalNoComments, translatedNoComments);
 
             const finalStatus = finalMismatches.length === 0 ? 'PASS' : 'FAIL';
-            console.log(
+            const finalMessage =
                 `[final check] Status=${finalStatus} ` +
                 `(Original headings:${originalStats.headings}, code blocks:${originalStats.codeBlocks}; ` +
                 `Translated headings:${translatedStats.headings}, code blocks:${translatedStats.codeBlocks})` +
-                `${finalMismatches.length > 0 ? ` (mismatches: ${finalMismatches.join('; ')})` : ''}`
-            );
+                `${finalMismatches.length > 0 ? ` (mismatches: ${finalMismatches.join('; ')})` : ''}`;
+            console.log(finalMismatches.length === 0 ? chalk.green(finalMessage) : chalk.red(finalMessage));
 
             if (finalMismatches.length > 0) {
                 throw new Error(`Final translation completeness check failed: ${finalMismatches.join('; ')}`);
@@ -641,7 +654,7 @@ class AstMarkdownTranslator extends MarkdownTranslator {
 
                 await fs.ensureDir(path.dirname(invalidPath));
                 await fs.writeFile(invalidPath, translated, 'utf8');
-                console.error(`❌ Translation failed - incomplete output written to: ${invalidPath}`);
+                console.error(chalk.red(`❌ Translation failed - incomplete output written to: ${invalidPath}`));
             }
 
             throw error;
