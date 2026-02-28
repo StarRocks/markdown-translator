@@ -26,10 +26,14 @@ This code and most of the README are from the team at [PlayCanvas](https://githu
   --suffix <suffix>       Custom suffix for output files (default: language
                           name)
    --log-chunk-metadata    Log API metadata for each chunk
+   --trace                 Log per-ID source text sent and translated text
+                                       received (full content, no truncation)
   -h, --help              display help for command
 ```
 
 The translator now uses the AST pipeline by default.
+
+When `--trace` is enabled, the tool logs one JSON trace record per ID and includes the full `sourceText` and `translatedText` values. The only masking applied is replacing any accidental `GEMINI_API_KEY` occurrences with `***`.
 
 ### Interpreting AST parse failures
 
@@ -208,6 +212,7 @@ Options:
   --flat                   Use flat structure in output directory (default: preserve structure)
   --suffix <suffix>        Custom suffix for output files (default: language name)
    --log-chunk-metadata     Log API metadata for each chunk
+   --trace                  Log per-ID source text sent and translated text received
 ```
 
 #### `languages` - List supported languages

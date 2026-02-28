@@ -37,6 +37,7 @@ program
 .option('--flat', 'Use flat structure in output directory (default: preserve structure)')
 .option('--suffix <suffix>', 'Custom suffix for output files (default: language name)')
 .option('--log-chunk-metadata', 'Log API metadata for each chunk')
+.option('--trace', 'Log per-ID source text sent and translated text received')
 .action(async (options) => {
     console.log(chalk.cyan(banner));
 
@@ -48,6 +49,10 @@ program
             console.log(chalk.yellow('Set GEMINI_API_KEY environment variable or use --key option'));
             console.log(chalk.blue('Get your API key from: https://aistudio.google.com/app/apikey'));
             process.exit(1);
+        }
+
+        if (options.trace) {
+            console.log(chalk.yellow('⚠️  --trace enabled: full per-ID source/translation content will be logged. Handle logs cautiously.'));
         }
 
         // Initialize translator
@@ -103,7 +108,8 @@ program
                         preserveStructure: !options.flat,
                         suffix: options.suffix,
                         source: options.source || 'English',
-                        logChunkMetadata: Boolean(options.logChunkMetadata)
+                        logChunkMetadata: Boolean(options.logChunkMetadata),
+                        trace: Boolean(options.trace)
                     }
                 );
 
@@ -195,7 +201,8 @@ program
                     options.language,
                     options.source || 'English',
                     progressCallback,
-                    Boolean(options.logChunkMetadata)
+                    Boolean(options.logChunkMetadata),
+                    Boolean(options.trace)
                 );
 
                 spinner.succeed(chalk.green('✅ Translation completed successfully!'));

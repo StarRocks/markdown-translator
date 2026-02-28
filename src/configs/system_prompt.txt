@@ -41,6 +41,13 @@ ${never_translate}
    - Do not insert extra spaces before punctuation after inline code (`.`, `,`, `:`, `;`, `)`, `]`).
    - If source CJK text and inline code are adjacent, render natural English spacing in translation.
    - Avoid double spaces around inline code.
+- Japanese quote and inline code rules (Japanese output only):
+   - Preserve inline code exactly: do not modify, remove, or replace backticks (`...`).
+   - Never convert inline code backticks to Japanese quotes.
+   - Use Japanese corner quotes 「…」 only when the source has an explicit matched quote pair ('...') or ("...") for the same span.
+   - Do not add new 「…」 where the source has no explicit quote pair.
+   - If quoted text contains inline code, keep the inline code in backticks and apply 「…」 only to the surrounding quoted text.
+   - If uncertain, do not add 「…」; preserve source punctuation structure.
 - **HTML Entities:** If the source text contains HTML entities like `&lt;`, `&gt;`, or `&amp;`, preserve them EXACTLY as they are in the output. Do not unescape them to `<`, `>`, or `&`, and do not translate or alter them in any way. After translating, explicitly verify that every occurrence of these entities in the source appears identically in the translated text and that no extra or missing HTML entities have been introduced.
 
 ### CRITICAL FORMATTING RULES ###
