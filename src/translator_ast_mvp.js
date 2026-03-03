@@ -33,6 +33,14 @@ class AstMarkdownTranslator extends MarkdownTranslator {
         return `__MTX_${id}__`;
     }
 
+    buildInlineCodePlaceholder(id) {
+        return `__MTX_CODE_${id}__`;
+    }
+
+    buildNeverTranslatePlaceholder(id) {
+        return `__MTX_NEVER_${id}__`;
+    }
+
     isSkippableTextParent(parentType) {
         return ['code', 'inlineCode', 'yaml', 'html', 'math', 'inlineMath', 'mdxjsEsm'].includes(parentType);
     }
@@ -41,13 +49,184 @@ class AstMarkdownTranslator extends MarkdownTranslator {
         return Boolean(value && value.trim());
     }
 
+    escapeForRegex(value) {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    protectNeverTranslateInText(text, replacements) {
+        if (typeof text !== 'string' || !text || !Array.isArray(this.neverTranslateTerms) || this.neverTranslateTerms.length === 0) {
+            return text;
+        }
+
+        let output = text;
+        const sortedTerms = [...this.neverTranslateTerms].sort((a, b) => b.length - a.length);
+
+        for (const term of sortedTerms) {
+            if (!term) {
+                continue;
+            }
+
+            const escapedTerm = this.escapeForRegex(term);
+            const pattern = new RegExp(escapedTerm, 'g');
+
+            output = output.replace(pattern, () => {
+                const placeholder = this.buildNeverTranslatePlaceholder(replacements.length + 1);
+                replacements.push({ placeholder, value: term });
+                return placeholder;
+            });
+        }
+
+        return output;
+    }
+
+    protectNeverTranslateEntries(entries) {
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return { entries, replacements: [] };
+        }
+
+        const replacements = [];
+        const protectedEntries = entries.map((entry) => {
+            if (!entry || typeof entry.text !== 'string') {
+                return entry;
+            }
+
+            return {
+                ...entry,
+                text: this.protectNeverTranslateInText(entry.text, replacements)
+            };
+        });
+
+        return {
+            entries: protectedEntries,
+            replacements
+        };
+    }
+
+    restoreNeverTranslateInText(text, replacements) {
+        if (typeof text !== 'string' || !text || !Array.isArray(replacements) || replacements.length === 0) {
+            return text;
+        }
+
+        let output = text;
+        for (const item of replacements) {
+            const escapedPlaceholder = item.placeholder.replaceAll('_', '\\_');
+            output = output.split(item.placeholder).join(item.value);
+            output = output.split(escapedPlaceholder).join(item.value);
+        }
+
+        return output;
+    }
+
+    restoreNeverTranslateEntries(entries, replacements) {
+        if (!Array.isArray(entries) || entries.length === 0 || !Array.isArray(replacements) || replacements.length === 0) {
+            return entries;
+        }
+
+        return entries.map((entry) => {
+            if (!entry || typeof entry.text !== 'string') {
+                return entry;
+            }
+
+            return {
+                ...entry,
+                text: this.restoreNeverTranslateInText(entry.text, replacements)
+            };
+        });
+    }
+
+    getCodeCommentMarkers(language) {
+        if (!language) {
+            return [];
+        }
+
+        const normalized = language.trim().toLowerCase();
+
+        if (['python', 'py', 'bash', 'shell', 'sh', 'zsh', 'yaml', 'yml', 'toml', 'ini'].includes(normalized)) {
+            return ['#'];
+        }
+
+        if (['sql', 'mysql', 'postgres', 'postgresql'].includes(normalized)) {
+            return ['--', '#'];
+        }
+
+        if (
+            [
+                'javascript',
+                'js',
+                'typescript',
+                'ts',
+                'java',
+                'c',
+                'cpp',
+                'c++',
+                'go',
+                'rust',
+                'scala',
+                'kotlin',
+                'php',
+                'swift'
+            ].includes(normalized)
+        ) {
+            return ['//'];
+        }
+
+        return [];
+    }
+
+    extractTranslatableCodeComments(node, registerEntry) {
+        if (!node || typeof node.value !== 'string' || !node.value) {
+            return;
+        }
+
+        const markers = this.getCodeCommentMarkers(node.lang);
+        if (markers.length === 0) {
+            return;
+        }
+
+        const lines = node.value.split('\n');
+        let changed = false;
+
+        const escapeForRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        for (let index = 0; index < lines.length; index += 1) {
+            const line = lines[index];
+
+            for (const marker of markers) {
+                const markerPattern = escapeForRegex(marker);
+                const match = line.match(new RegExp(`^(\\s*${markerPattern}\\s*)(.+)$`));
+                if (!match) {
+                    continue;
+                }
+
+                const commentPrefix = match[1];
+                const commentText = match[2];
+
+                if (!this.shouldTranslateValue(commentText)) {
+                    continue;
+                }
+
+                registerEntry(commentText, (placeholder) => {
+                    lines[index] = `${commentPrefix}${placeholder}`;
+                });
+                changed = true;
+                break;
+            }
+        }
+
+        if (changed) {
+            node.value = lines.join('\n');
+        }
+    }
+
     extractTranslatableContent(content) {
         const parser = this.createAstParser();
         const stringifier = this.createAstStringifier();
         const tree = parser.parse(content);
 
         const entries = [];
+        const inlineCodePlaceholders = [];
         let nextId = 1;
+        let nextInlineCodeId = 1;
 
         const registerEntry = (currentValue, assignValue) => {
             if (!this.shouldTranslateValue(currentValue)) {
@@ -61,14 +240,83 @@ class AstMarkdownTranslator extends MarkdownTranslator {
             nextId += 1;
         };
 
-        visit(tree, 'text', (node, index, parent) => {
-            if (!parent || this.isSkippableTextParent(parent.type)) {
+        const processChildrenForInlineCodeContext = (node) => {
+            if (!node || typeof node !== 'object' || !Array.isArray(node.children)) {
                 return;
             }
 
-            registerEntry(node.value, (placeholder) => {
-                node.value = placeholder;
-            });
+            if (this.isSkippableTextParent(node.type)) {
+                return;
+            }
+
+            const children = node.children;
+            const rebuiltChildren = [];
+            let index = 0;
+
+            while (index < children.length) {
+                const child = children[index];
+                const isTranslatableRunNode = child?.type === 'text' || child?.type === 'inlineCode';
+
+                if (!isTranslatableRunNode) {
+                    rebuiltChildren.push(child);
+                    index += 1;
+                    continue;
+                }
+
+                const run = [];
+                let hasTranslatableText = false;
+
+                while (index < children.length) {
+                    const runChild = children[index];
+                    const isRunNode = runChild?.type === 'text' || runChild?.type === 'inlineCode';
+                    if (!isRunNode) {
+                        break;
+                    }
+
+                    if (runChild.type === 'text' && this.shouldTranslateValue(runChild.value)) {
+                        hasTranslatableText = true;
+                    }
+
+                    run.push(runChild);
+                    index += 1;
+                }
+
+                if (!hasTranslatableText) {
+                    rebuiltChildren.push(...run);
+                    continue;
+                }
+
+                let combinedText = '';
+                for (const runChild of run) {
+                    if (runChild.type === 'text') {
+                        combinedText += runChild.value || '';
+                    } else {
+                        const inlineCodePlaceholder = this.buildInlineCodePlaceholder(nextInlineCodeId);
+                        inlineCodePlaceholders.push({
+                            placeholder: inlineCodePlaceholder,
+                            value: runChild.value || ''
+                        });
+                        combinedText += `\`${inlineCodePlaceholder}\``;
+                        nextInlineCodeId += 1;
+                    }
+                }
+
+                registerEntry(combinedText, (entryPlaceholder) => {
+                    rebuiltChildren.push({ type: 'text', value: entryPlaceholder });
+                });
+            }
+
+            node.children = rebuiltChildren;
+
+            for (const child of node.children) {
+                processChildrenForInlineCodeContext(child);
+            }
+        };
+
+        processChildrenForInlineCodeContext(tree);
+
+        visit(tree, 'code', (node) => {
+            this.extractTranslatableCodeComments(node, registerEntry);
         });
 
         visit(tree, 'image', (node) => {
@@ -96,7 +344,8 @@ class AstMarkdownTranslator extends MarkdownTranslator {
 
         return {
             skeleton,
-            entries
+            entries,
+            inlineCodePlaceholders
         };
     }
 
@@ -154,10 +403,56 @@ class AstMarkdownTranslator extends MarkdownTranslator {
         console.log(chalk.gray(message));
     }
 
+    maskTraceValue(value) {
+        if (typeof value !== 'string' || !value || !this.apiKey) {
+            return value;
+        }
+
+        return value.split(this.apiKey).join('***');
+    }
+
+    logTraceEntries(items, translated, chunkIndex, totalChunks, sourceLanguage, targetLanguage) {
+        const translatedById = new Map(translated.merged.map(item => [item.id, item.text]));
+        const unresolvedIds = new Set(translated.missingIds);
+
+        for (const item of items) {
+            const translatedText = translatedById.has(item.id) ? translatedById.get(item.id) : item.text;
+            const traceRecord = {
+                chunk: chunkIndex,
+                totalChunks,
+                id: item.id,
+                sourceLanguage,
+                targetLanguage,
+                status: unresolvedIds.has(item.id) ? 'unresolved_missing_id' : 'translated',
+                sourceText: this.maskTraceValue(item.text),
+                translatedText: this.maskTraceValue(translatedText)
+            };
+
+            console.log(chalk.magenta(`[trace] ${JSON.stringify(traceRecord)}`));
+        }
+    }
+
     createAstTranslationPrompt(items, targetLanguage, sourceLanguage) {
+        const systemPrompt = this.renderSystemPrompt(sourceLanguage, targetLanguage);
         const payload = JSON.stringify(items);
 
-        return `Translate each item's text from ${sourceLanguage} to ${targetLanguage}.\n\nRules:\n1) Return ONLY a JSON array.\n2) Keep each id exactly as-is.\n3) Translate only text values.\n4) Do not add or remove items.\n5) Do not include explanations or markdown code fences.\n\nInput JSON:\n${payload}`;
+        const taskPrompt =
+            `Translate each item's text from ${sourceLanguage} to ${targetLanguage}.\n\n` +
+            'Response format requirements:\n' +
+            '1) Return ONLY a JSON array.\n' +
+            '2) Keep each id exactly as-is.\n' +
+            '3) Translate only text values.\n' +
+            '4) Do not add or remove items.\n' +
+            '5) Do not include explanations or markdown code fences.\n' +
+            '6) Tokens matching __MTX_CODE_<number>__ are protected placeholders for inline code. Keep them exactly unchanged. Do not translate, split, remove, or rename them.\n' +
+            '7) Tokens matching __MTX_NEVER_<number>__ are protected placeholders for never-translate terms. Keep them exactly unchanged. Do not translate, split, remove, or rename them.\n\n' +
+            `Input JSON:\n${payload}`;
+
+        if (systemPrompt) {
+            return `${systemPrompt}\n\n### TASK ###\n${taskPrompt}`;
+        }
+
+        return taskPrompt;
     }
 
     createAstTranslationRepairPrompt(items, targetLanguage, sourceLanguage, parseErrorMessage) {
@@ -415,8 +710,10 @@ class AstMarkdownTranslator extends MarkdownTranslator {
             finalMissingIds = splitRecovery.unresolvedIds;
         }
 
+        const quotePolicyMerged = this.enforceJapaneseQuotePolicy(resolvedMerged, items, targetLanguage);
+
         return {
-            merged: resolvedMerged,
+            merged: quotePolicyMerged,
             metadata,
             parseRecoveryMetadata,
             retryMetadata,
@@ -439,6 +736,19 @@ class AstMarkdownTranslator extends MarkdownTranslator {
         return output;
     }
 
+    restoreInlineCodePlaceholders(content, inlineCodePlaceholders) {
+        let output = content;
+
+        for (const item of inlineCodePlaceholders) {
+            const escapedPlaceholder = item.placeholder.replaceAll('_', '\\_');
+            const inlineCodeValue = item.value || '';
+            output = output.split(item.placeholder).join(inlineCodeValue);
+            output = output.split(escapedPlaceholder).join(inlineCodeValue);
+        }
+
+        return output;
+    }
+
     isEnglishTarget(targetLanguage) {
         if (!targetLanguage) {
             return false;
@@ -446,6 +756,55 @@ class AstMarkdownTranslator extends MarkdownTranslator {
 
         const normalized = targetLanguage.toString().trim().toLowerCase();
         return normalized === 'en' || normalized.includes('english');
+    }
+
+    isJapaneseTarget(targetLanguage) {
+        if (!targetLanguage) {
+            return false;
+        }
+
+        const normalized = targetLanguage.toString().trim().toLowerCase();
+        return normalized === 'ja' || normalized.includes('japanese');
+    }
+
+    sourceHasExplicitQuotePair(text) {
+        if (typeof text !== 'string' || !text) {
+            return false;
+        }
+
+        if (text.includes('「') || text.includes('」')) {
+            return true;
+        }
+
+        return /"[^"\n]+"|'[^'\n]+'/.test(text);
+    }
+
+    enforceJapaneseQuotePolicy(mergedItems, sourceItems, targetLanguage) {
+        if (!this.isJapaneseTarget(targetLanguage) || !Array.isArray(mergedItems) || !Array.isArray(sourceItems)) {
+            return mergedItems;
+        }
+
+        const sourceById = new Map(sourceItems.map(item => [item.id, item.text]));
+
+        return mergedItems.map((item) => {
+            if (!item || typeof item.text !== 'string') {
+                return item;
+            }
+
+            const sourceText = sourceById.get(item.id) || '';
+            if (this.sourceHasExplicitQuotePair(sourceText)) {
+                return item;
+            }
+
+            if (!item.text.includes('「') && !item.text.includes('」')) {
+                return item;
+            }
+
+            return {
+                id: item.id,
+                text: item.text.replaceAll('「', '').replaceAll('」', '')
+            };
+        });
     }
 
     normalizeEnglishInlineCodeSpacing(content) {
@@ -484,15 +843,20 @@ class AstMarkdownTranslator extends MarkdownTranslator {
         targetLanguage,
         sourceLanguage = 'English',
         progressCallback,
-        logChunkMetadata = false
+        logChunkMetadata = false,
+        trace = false
     ) {
-        const { skeleton, entries } = this.extractTranslatableContent(content);
+        const { skeleton, entries, inlineCodePlaceholders } = this.extractTranslatableContent(content);
+        const {
+            entries: protectedEntries,
+            replacements: neverTranslateReplacements
+        } = this.protectNeverTranslateEntries(entries);
 
-        if (entries.length === 0) {
+        if (protectedEntries.length === 0) {
             return content;
         }
 
-        const chunks = this.splitEntriesForTranslation(entries);
+        const chunks = this.splitEntriesForTranslation(protectedEntries);
         const translatedEntries = [];
         let passedChunks = 0;
         let failedChunks = 0;
@@ -510,6 +874,10 @@ class AstMarkdownTranslator extends MarkdownTranslator {
             // eslint-disable-next-line no-await-in-loop
             const translated = await this.translateEntryChunk(items, targetLanguage, sourceLanguage);
             translatedEntries.push(...translated.merged);
+
+            if (trace) {
+                this.logTraceEntries(items, translated, index + 1, chunks.length, sourceLanguage, targetLanguage);
+            }
 
             const translatedCount = items.length - translated.missingIds.length;
             const hasMissingIds = translated.missingIds.length > 0;
@@ -581,7 +949,13 @@ class AstMarkdownTranslator extends MarkdownTranslator {
             `fallback_chunks=${fallbackChunkCount} fallback_items=${fallbackItemCount}`)
         );
 
-        const translatedContent = this.restoreTranslatedContent(skeleton, translatedEntries);
+        const restoredNeverTranslateEntries = this.restoreNeverTranslateEntries(
+            translatedEntries,
+            neverTranslateReplacements
+        );
+
+        let translatedContent = this.restoreTranslatedContent(skeleton, restoredNeverTranslateEntries);
+        translatedContent = this.restoreInlineCodePlaceholders(translatedContent, inlineCodePlaceholders);
         if (this.isEnglishTarget(targetLanguage)) {
             return this.normalizeEnglishInlineCodeSpacing(translatedContent);
         }
@@ -595,7 +969,8 @@ class AstMarkdownTranslator extends MarkdownTranslator {
         targetLanguage,
         sourceLanguage = 'English',
         progressCallback,
-        logChunkMetadata = false
+        logChunkMetadata = false,
+        trace = false
     ) {
         let translated = null;
 
@@ -614,7 +989,8 @@ class AstMarkdownTranslator extends MarkdownTranslator {
                 targetLanguage,
                 sourceLanguage,
                 progressCallback,
-                logChunkMetadata
+                logChunkMetadata,
+                trace
             );
 
             const { commentlessContent: originalNoComments } = this.stripHtmlComments(content);
@@ -626,8 +1002,8 @@ class AstMarkdownTranslator extends MarkdownTranslator {
             const finalStatus = finalMismatches.length === 0 ? 'PASS' : 'FAIL';
             const finalMessage =
                 `[final check] Status=${finalStatus} ` +
-                `(Original headings:${originalStats.headings}, code blocks:${originalStats.codeBlocks}; ` +
-                `Translated headings:${translatedStats.headings}, code blocks:${translatedStats.codeBlocks})` +
+                `(Original headings:${originalStats.headings}, code blocks:${originalStats.codeBlocks}, unordered list items:${originalStats.unorderedListItems}; ` +
+                `Translated headings:${translatedStats.headings}, code blocks:${translatedStats.codeBlocks}, unordered list items:${translatedStats.unorderedListItems})` +
                 `${finalMismatches.length > 0 ? ` (mismatches: ${finalMismatches.join('; ')})` : ''}`;
             console.log(finalMismatches.length === 0 ? chalk.green(finalMessage) : chalk.red(finalMessage));
 
@@ -667,7 +1043,8 @@ class AstMarkdownTranslator extends MarkdownTranslator {
         targetLanguage,
         sourceLanguage = 'English',
         progressCallback,
-        logChunkMetadata = false
+        logChunkMetadata = false,
+        trace = false
     ) {
         return await this.translateFileAstMvp(
             inputPath,
@@ -675,7 +1052,8 @@ class AstMarkdownTranslator extends MarkdownTranslator {
             targetLanguage,
             sourceLanguage,
             progressCallback,
-            logChunkMetadata
+            logChunkMetadata,
+            trace
         );
     }
 }

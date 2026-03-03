@@ -137,5 +137,3 @@ List Partitioning: List 分区
 Range Partitioning: Range 分区
 Bitmap index: Bitmap 索引
 Bloom filter index: Bloom filter 索引
-Data Cache: Data Cache
-Pipeline Engine: Pipeline Engine

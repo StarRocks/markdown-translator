@@ -11,7 +11,10 @@ class MarkdownTranslator {
             throw new Error('Google Gemini API key is required');
         }
 
+        this.apiKey = apiKey;
+
         this.genAI = new GoogleGenerativeAI(apiKey);
+        this.neverTranslateTerms = [];
         this.modelName = 'gemini-2.5-flash';
         this.model = this.genAI.getGenerativeModel({
             model: this.modelName,
@@ -45,16 +48,115 @@ class MarkdownTranslator {
             const neverPath = path.join(configsDir, 'never_translate.yaml');
             if (fs.existsSync(neverPath)) {
                 this.neverTranslate = fs.readFileSync(neverPath, 'utf8');
+                this.neverTranslateTerms = this.parseYamlList(this.neverTranslate);
             } else {
                 const neverPathYml = path.join(configsDir, 'never_translate.yml');
                 if (fs.existsSync(neverPathYml)) {
                     this.neverTranslate = fs.readFileSync(neverPathYml, 'utf8');
+                    this.neverTranslateTerms = this.parseYamlList(this.neverTranslate);
                 }
             }
         } catch {
             this.systemPromptTemplate = this.systemPromptTemplate || null;
             this.languageDictionaries = this.languageDictionaries || {};
         }
+    }
+
+    parseYamlList(rawText) {
+        if (typeof rawText !== 'string' || !rawText.trim()) {
+            return [];
+        }
+
+        const terms = [];
+        const seen = new Set();
+        const lines = rawText.split(/\r?\n/);
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) {
+                continue;
+            }
+
+            if (!trimmed.startsWith('-')) {
+                continue;
+            }
+
+            let term = trimmed.slice(1).trim();
+            if (!term) {
+                continue;
+            }
+
+            if (
+                (term.startsWith('"') && term.endsWith('"')) ||
+                (term.startsWith('\'') && term.endsWith('\''))
+            ) {
+                term = term.slice(1, -1).trim();
+            }
+
+            if (!term || seen.has(term)) {
+                continue;
+            }
+
+            seen.add(term);
+            terms.push(term);
+        }
+
+        return terms;
+    }
+
+    normalizeLanguageKey(language) {
+        if (!language) {
+            return '';
+        }
+
+        const normalized = language.toString().trim().toLowerCase();
+        const map = {
+            en: 'en',
+            english: 'en',
+            ja: 'ja',
+            japanese: 'ja',
+            jp: 'ja',
+            zh: 'zh',
+            chinese: 'zh',
+            'simplified chinese': 'zh',
+            'traditional chinese': 'zh'
+        };
+
+        if (map[normalized]) {
+            return map[normalized];
+        }
+
+        return normalized.replace(/[^a-z]/g, '');
+    }
+
+    getDictionaryForLanguage(targetLanguage) {
+        const key = this.normalizeLanguageKey(targetLanguage);
+        if (!key || !this.languageDictionaries || typeof this.languageDictionaries !== 'object') {
+            return '';
+        }
+
+        return this.languageDictionaries[key] || '';
+    }
+
+    renderSystemPrompt(sourceLanguage, targetLanguage) {
+        const dictionary = this.getDictionaryForLanguage(targetLanguage);
+        const neverTranslate = this.neverTranslate || '';
+        const dollar = '$';
+        const sourcePlaceholder = `${dollar}{source_lang}`;
+        const targetPlaceholder = `${dollar}{target_lang}`;
+        const dictionaryPlaceholder = `${dollar}{dictionary}`;
+        const neverPlaceholder = `${dollar}{never_translate}`;
+
+        if (!this.systemPromptTemplate || typeof this.systemPromptTemplate !== 'string') {
+            return '';
+        }
+
+        let rendered = this.systemPromptTemplate;
+        rendered = rendered.replaceAll(sourcePlaceholder, String(sourceLanguage || 'English'));
+        rendered = rendered.replaceAll(targetPlaceholder, String(targetLanguage || ''));
+        rendered = rendered.replaceAll(dictionaryPlaceholder, dictionary);
+        rendered = rendered.replaceAll(neverPlaceholder, neverTranslate);
+        return rendered.trim();
     }
 
     getMarkdownStats(content) {
@@ -64,6 +166,7 @@ class MarkdownTranslator {
         let fenceLen = 0;
         let headings = 0;
         let codeBlocks = 0;
+        let unorderedListItems = 0;
 
         for (const line of lines) {
             const fenceMatch = line.match(/^\s*([`~]{3,})/);
@@ -89,9 +192,13 @@ class MarkdownTranslator {
             if (!inCodeBlock && /^\s{0,3}#{1,6}\s+\S/.test(line)) {
                 headings += 1;
             }
+
+            if (!inCodeBlock && /^\s{0,3}[-*]\s+\S/.test(line)) {
+                unorderedListItems += 1;
+            }
         }
 
-        return { headings, codeBlocks };
+        return { headings, codeBlocks, unorderedListItems };
     }
 
     getCompletenessMismatches(originalContent, translatedContent) {
@@ -104,6 +211,11 @@ class MarkdownTranslator {
         }
         if (originalStats.codeBlocks !== translatedStats.codeBlocks) {
             mismatches.push(`code blocks (expected ${originalStats.codeBlocks}, got ${translatedStats.codeBlocks})`);
+        }
+        if (originalStats.unorderedListItems !== translatedStats.unorderedListItems) {
+            mismatches.push(
+                `unordered list items (expected ${originalStats.unorderedListItems}, got ${translatedStats.unorderedListItems})`
+            );
         }
 
         return mismatches;
@@ -151,7 +263,8 @@ class MarkdownTranslator {
             preserveStructure = true,
             suffix = '',
             source = 'English',
-            logChunkMetadata = false
+            logChunkMetadata = false,
+            trace = false
         } = options;
 
         try {
@@ -228,7 +341,8 @@ class MarkdownTranslator {
                         targetLanguage,
                         source,
                         fileProgressCallback,
-                        logChunkMetadata
+                        logChunkMetadata,
+                        trace
                     );
                     results.push(result);
 

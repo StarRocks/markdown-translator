@@ -153,5 +153,3 @@ shared-nothing: 共有なし
 object storage: オブジェクトストレージ
 logical view: ビュー
 join: ジョイン
-Data Cache: Data Cache
-Pipeline Engine: Pipeline Engine
