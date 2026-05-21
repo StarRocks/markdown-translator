@@ -1,5 +1,9 @@
 # Markdown Translator
 
+> Note:
+>
+> This repo is archived. We switched to doc-translator using Anthropic
+
 A powerful command-line tool that uses Google Gemini AI to translate markdown and MDX files from English to any specified language while preserving formatting and structure.
 
 ## Usage at StarRocks
